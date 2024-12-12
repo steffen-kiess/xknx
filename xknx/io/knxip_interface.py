@@ -105,11 +105,13 @@ class KNXIPInterface:
             )
         elif (
             self.connection_config.connection_type == ConnectionType.TUNNELING_TCP
-            and gateway_ip is not None
+            and (gateway_ip is not None or self.connection_config.gateway_path is not None or self.connection_config.connect_cb is not None)
         ):
             await self._start_tunnelling_tcp(
                 gateway_ip=gateway_ip,
                 gateway_port=self.connection_config.gateway_port,
+                gateway_path=self.connection_config.gateway_path,
+                connect_cb=self.connection_config.connect_cb,
             )
         elif (
             self.connection_config.connection_type
@@ -172,6 +174,8 @@ class KNXIPInterface:
                         await self._start_tunnelling_tcp(
                             gateway_ip=gateway.ip_addr,
                             gateway_port=gateway.port,
+                            gateway_path=None,
+                            connect_cb=None,
                         )
                 elif (
                     gateway.supports_tunnelling
@@ -202,16 +206,23 @@ class KNXIPInterface:
 
     async def _start_tunnelling_tcp(
         self,
-        gateway_ip: str,
+        gateway_ip: str | None,
         gateway_port: int,
+        gateway_path: str | None,
+        connect_cb: Callable[[asyncio.AbstractEventLoop, Callable[[], asyncio.Protocol]], Awaitable[Tuple[asyncio.Transport, asyncio.Protocol]]] | None,
     ) -> None:
         """Start KNX/IP TCP tunnel."""
         tunnel_address = self.connection_config.individual_address
 
+        if connect_cb is not None:
+            connect_info = "using connect callback"
+        elif gateway_path is not None:
+            connect_info = f"Unix Domain Socket {gateway_path}"
+        else:
+            connect_info = f"{gateway_ip}:{gateway_port} over TCP"
         logger.debug(
-            "Starting tunnel to %s:%s over TCP%s",
-            gateway_ip,
-            gateway_port,
+            "Starting tunnel to %s%s",
+            connect_info,
             f" requesting individual address {tunnel_address}"
             if tunnel_address
             else "",
@@ -220,6 +231,8 @@ class KNXIPInterface:
             self.xknx,
             gateway_ip=gateway_ip,
             gateway_port=gateway_port,
+            gateway_path=gateway_path,
+            connect_cb=connect_cb,
             individual_address=tunnel_address,
             cemi_received_callback=self.cemi_received,
             auto_reconnect=self.connection_config.auto_reconnect,
